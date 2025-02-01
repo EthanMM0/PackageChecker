@@ -3,7 +3,6 @@ import sys
 import importlib
 import subprocess
 import ctypes
-import yaml  # Import after ensuring installation
 
 # List of required external packages
 required_packages = {"yaml": "PyYAML"}  # Mapping import name to pip package name
@@ -32,6 +31,9 @@ for import_name, pip_name in required_packages.items():
     installed, _ = is_installed(import_name)
     if not installed:
         install_package(pip_name)
+
+# Import yaml after ensuring installation
+import yaml
 
 # Function to find all imported packages in .py files
 def find_imported_packages():
