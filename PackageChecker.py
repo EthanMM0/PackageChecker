@@ -15,12 +15,32 @@ def is_installed(package_name):
     except ImportError:
         return False, None
 
-# Function to install a package
+# Function to install a package with progress bar
 def install_package(pip_name):
     print(f"Package: {pip_name} is installing")
     try:
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', pip_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print(f"Package: {pip_name} Installed")
+        process = subprocess.Popen(
+            [sys.executable, '-m', 'pip', 'install', pip_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            bufsize=1
+        )
+        
+        progress = 0
+        for line in process.stdout:
+            if "Collecting" in line:
+                progress = 10
+            elif "Downloading" in line:
+                progress = 30
+            elif "Installing collected packages" in line:
+                progress = 60
+            elif "Successfully installed" in line:
+                progress = 100
+            print(f"Installing {pip_name}... {progress}%", end="\r")
+        
+        process.wait()
+        print(f"\nPackage: {pip_name} Installed")
         return True
     except subprocess.CalledProcessError as e:
         print(f"Error installing {pip_name}: {e}")
