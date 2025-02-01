@@ -33,13 +33,13 @@ for import_name, pip_name in required_packages.items():
     if not installed:
         install_package(pip_name)
 
-# Function to find all imported packages in the current project
+# Function to find all imported packages in .py files
 def find_imported_packages():
     imported_packages = set()
     for root, _, files in os.walk('.'):  # Scan current directory
         for file in files:
-            if file.endswith('.py'):
-                with open(os.path.join(root, file), 'r') as f:
+            if file.endswith('.py'):  # Check only .py files
+                with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
                     for line in f:
                         if line.startswith('import') or line.startswith('from'):
                             parts = line.split()
