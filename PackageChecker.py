@@ -70,7 +70,7 @@ def install_specific_version(package, version):
         text=True
     )
     if "deprecated" in result.stdout.lower() or "use 'scikit-learn'" in result.stdout.lower():
-        print(f"⚠️ {package} is deprecated.")
+        print(f"⚠ {package} is deprecated.")
         return "DEPRECATED"
     return result.returncode == 0
 
@@ -165,7 +165,7 @@ def main():
         latest_compatible = get_latest_compatible_version(alias, installed_dependencies)
 
         if not latest_compatible:
-            print(f"❌ No compatible version found for {package}")
+            print(f" No compatible version found for {package}")
             dependencies[package] = "Unknown --NO_COMPAT_VERSION"
             continue
 
