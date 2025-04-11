@@ -3,29 +3,11 @@ import sys
 import importlib
 import subprocess
 import ctypes
-import pkgutil
-import builtins
-import json
-import re
-from packaging.version import parse as parse_version
 
-# Required for YAML file output
-required_packages = {"yaml": "PyYAML"}
+# List of required external packages
+required_packages = {"yaml": "PyYAML"}  # Mapping import name to pip package name
 
-# Known deprecated PyPI aliases
-deprecated_aliases = {
-    "sklearn": "scikit-learn"
-}
-
-# Compatibility rules: {package: (affected_package, max_version)}
-compatibility_rules = {
-    "numpy": [
-        ("scipy", "1.27.0"),
-        ("pandas", "3.0.0"),
-        ("scikit-learn", "1.4.0")
-    ]
-}
-
+# Function to check if a package is installed
 def is_installed(package_name):
     try:
         module = importlib.import_module(package_name)
@@ -33,76 +15,55 @@ def is_installed(package_name):
     except ImportError:
         return False, None
 
-def get_available_versions(pip_name):
-    result = subprocess.run(
-        [sys.executable, '-m', 'pip', 'index', 'versions', pip_name],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True
-    )
-    matches = re.findall(rf'{pip_name} \((.*?)\)', result.stdout)
-    if matches:
-        versions = matches[0].split(', ')
-        return [v.strip() for v in versions if re.match(r'^\d', v)]
-    return []
+# Function to install a package with progress bar
+def install_package(pip_name):
+    print(f"Package: {pip_name} is installing")
+    try:
+        process = subprocess.Popen(
+            [sys.executable, '-m', 'pip', 'install', pip_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            bufsize=1
+        )
+        
+        progress = 0
+        for line in process.stdout:
+            if "Collecting" in line:
+                progress = 10
+            elif "Downloading" in line:
+                progress = 30
+            elif "Installing collected packages" in line:
+                progress = 60
+            elif "Successfully installed" in line:
+                progress = 100
+            print(f"Installing {pip_name}... {progress}%", end="\r")
+        
+        process.wait()
+        print(f"\nPackage: {pip_name} Installed")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Error installing {pip_name}: {e}")
+        return False
 
-def get_latest_compatible_version(package, installed_dependencies):
-    versions = get_available_versions(package)
-    if not versions:
-        return None
-    for version in versions:
-        compatible = True
-        for dep, max_version in compatibility_rules.get(package, []):
-            if dep in installed_dependencies:
-                if parse_version(version) >= parse_version(max_version):
-                    compatible = False
-                    break
-        if compatible:
-            return version
-    return None
+# Ensure required packages are installed
+for import_name, pip_name in required_packages.items():
+    installed, _ = is_installed(import_name)
+    if not installed:
+        install_package(pip_name)
 
-def install_specific_version(package, version):
-    print(f"Installing {package}=={version} for compatibility...")
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", f"{package}=={version}"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True
-    )
-    if "deprecated" in result.stdout.lower() or "use 'scikit-learn'" in result.stdout.lower():
-        print(f"⚠ {package} is deprecated.")
-        return "DEPRECATED"
-    return result.returncode == 0
+# Import yaml after ensuring installation
+import yaml
 
-def prompt_user_confirmation(message):
-    response = ctypes.windll.user32.MessageBoxW(0, message, "Confirmation", 1)
-    return response == 1
-
-def show_completion_alert(installed_packages):
-    if not installed_packages:
-        message = "All packages are already installed correctly."
-    else:
-        message = "Dependencies Installed:\n" + "\n".join(installed_packages)
-    ctypes.windll.user32.MessageBoxW(0, message, "Installation Complete", 0)
-
-def is_standard_or_builtin(module_name):
-    return (
-        module_name in sys.builtin_module_names or
-        module_name in dir(builtins) or
-        pkgutil.find_loader(module_name) is None
-    )
-
-def is_local_module(module_name):
-    return os.path.isfile(f"{module_name}.py") or os.path.isdir(module_name)
-
+# Function to find all imported packages in .py files
 def find_imported_packages():
     imported_packages = set()
-    for root, _, files in os.walk('.'):
+    for root, _, files in os.walk('.'):  # Scan current directory
         for file in files:
-            if file.endswith('.py'):
+            if file.endswith('.py'):  # Check only .py files
                 with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
                     for line in f:
-                        if line.strip().startswith('import') or line.strip().startswith('from'):
+                        if line.startswith('import') or line.startswith('from'):
                             parts = line.split()
                             if parts[0] == 'import':
                                 imported_packages.add(parts[1].split('.')[0])
@@ -110,85 +71,72 @@ def find_imported_packages():
                                 imported_packages.add(parts[1].split('.')[0])
     return imported_packages
 
-def check_for_updates(packages):
-    result = subprocess.run(
-        [sys.executable, '-m', 'pip', 'list', '--outdated', '--format=json'],
-        stdout=subprocess.PIPE,
-        text=True
-    )
-    outdated = json.loads(result.stdout)
-    updates = {}
-    for pkg in outdated:
-        name = pkg['name']
-        if name.lower() in (p.lower() for p in packages):
-            updates[name] = {
-                "current": pkg["version"],
-                "latest": pkg["latest_version"]
-            }
-    return updates
+# Prompt user for confirmation
+def prompt_user_confirmation(message):
+    response = ctypes.windll.user32.MessageBoxW(0, message, "Confirmation", 1)
+    return response == 1
 
+# Function to display completion alert
+def show_completion_alert(installed_packages):
+    if not installed_packages:
+        message = "All packages are already installed correctly."
+    else:
+        message = "Dependencies Installed:\n" + "\n".join(installed_packages)
+    ctypes.windll.user32.MessageBoxW(0, message, "Installation Complete", 0)
+
+# Main function
 def main():
     packages = find_imported_packages()
     dependencies = {}
-    external_packages = []
-    compatible_installs = []
-    installed_dependencies = {}
-
-    # Placeholder YAML
+    missing_packages = []
+    
+    # Save initial package list to YAML
     with open('Dependencies.yaml', 'w') as yaml_file:
-        import yaml
         yaml.dump({pkg: "Unchecked" for pkg in packages}, yaml_file, default_flow_style=False)
-
-    if not prompt_user_confirmation("Would you like to check for and install compatible versions of all used packages?"):
-        print("Operation cancelled.")
+    
+    if not prompt_user_confirmation("Would you like to check for missing packages in the project?"):
+        print("Installation canceled.")
         return
 
     for package in packages:
-        base_package = deprecated_aliases.get(package, package)
-
-        if is_local_module(package):
-            dependencies[package] = "Local Module"
-        elif is_standard_or_builtin(package):
-            dependencies[package] = "Built-in"
+        installed, version = is_installed(package)
+        if installed:
+            print(f"Package: {package} is already installed")
+            dependencies[package] = f"Installed ({version})"
         else:
-            installed, version = is_installed(package)
-            if installed:
-                dependencies[package] = version
-                installed_dependencies[base_package] = version
-                external_packages.append(base_package)
-            else:
-                external_packages.append(base_package)
-
-    for package in external_packages:
-        alias = deprecated_aliases.get(package, package)
-
-        latest_compatible = get_latest_compatible_version(alias, installed_dependencies)
-
-        if not latest_compatible:
-            print(f" No compatible version found for {package}")
-            dependencies[package] = "Unknown --NO_COMPAT_VERSION"
-            continue
-
-        result = install_specific_version(alias, latest_compatible)
-        if result == "DEPRECATED":
-            dependencies[package] = f"{latest_compatible} --DEPRECATED"
-        elif result:
-            dependencies[package] = f"{latest_compatible} --COMPATIBLE"
-            compatible_installs.append(f"{package}: {latest_compatible}")
-        else:
-            dependencies[package] = f"{latest_compatible} --FAILED"
-
-    # Save final version list
+            missing_packages.append(f"{package}: {version if version else 'Unknown Version'}")
+            dependencies[package] = "Not Installed"
+    
+    # Save updated dependencies
     with open('Dependencies.yaml', 'w') as yaml_file:
         yaml.dump(dependencies, yaml_file, default_flow_style=False)
-
-    show_completion_alert(compatible_installs)
+    
+    if not missing_packages:
+        show_completion_alert([])
+        return
+    
+    # Ask user if they want to install missing packages
+    missing_packages_message = "List of missing packages:\n" + "\n".join(missing_packages) + "\n\nWould you like to install them?"
+    if not prompt_user_confirmation(missing_packages_message):
+        print("Installation of missing packages canceled.")
+        return
+    
+    installed_packages = []
+    for package_info in missing_packages:
+        package_name = package_info.split(':')[0]
+        success = install_package(package_name)
+        if success:
+            installed, version = is_installed(package_name)
+            dependencies[package_name] = f"Installed ({version})" if installed else "Failed"
+            if installed:
+                installed_packages.append(f"{package_name}: {version}")
+    
+    # Save final updated dependencies
+    with open('Dependencies.yaml', 'w') as yaml_file:
+        yaml.dump(dependencies, yaml_file, default_flow_style=False)
+    
+    # Show completion alert
+    show_completion_alert(installed_packages)
 
 if __name__ == "__main__":
-    for import_name, pip_name in required_packages.items():
-        installed, _ = is_installed(import_name)
-        if not installed:
-            subprocess.run([sys.executable, "-m", "pip", "install", pip_name])
-
-    import yaml
     main()
